@@ -6,6 +6,7 @@ pragma solidity >=0.7.0 < 0.9.0;
 // More info: https://www.nccgroup.trust/us/about-us/newsroom-and-events/blog/2018/november/smart-contract-insecurity-bad-arithmetic/
 
 import "../node_modules/@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "./FlightSuretyData.sol";
 
 /************************************************** */
 /* FlightSurety Smart Contract                      */
@@ -17,24 +18,9 @@ contract FlightSuretyApp {
     /*                                       DATA VARIABLES                                     */
     /********************************************************************************************/
 
-    // Flight status codees
-    uint8 private constant STATUS_CODE_UNKNOWN = 0;
-    uint8 private constant STATUS_CODE_ON_TIME = 10;
-    uint8 private constant STATUS_CODE_LATE_AIRLINE = 20;
-    uint8 private constant STATUS_CODE_LATE_WEATHER = 30;
-    uint8 private constant STATUS_CODE_LATE_TECHNICAL = 40;
-    uint8 private constant STATUS_CODE_LATE_OTHER = 50;
-
     address private contractOwner;          // Account used to deploy contract
 
-    struct Flight {
-        bool isRegistered;
-        uint8 statusCode;
-        uint256 updatedTimestamp;        
-        address airline;
-    }
-    mapping(bytes32 => Flight) private flights;
-
+    FlightSuretyData dataContract;
  
     /********************************************************************************************/
     /*                                       FUNCTION MODIFIERS                                 */
@@ -72,21 +58,24 @@ contract FlightSuretyApp {
     * @dev Contract constructor
     *
     */
-    constructor() 
+    constructor(address dataContractAddress) 
     {
         contractOwner = msg.sender;
+        dataContract = FlightSuretyData(dataContractAddress);
+        dataContract.registerAirline();
     }
 
     /********************************************************************************************/
     /*                                       UTILITY FUNCTIONS                                  */
     /********************************************************************************************/
 
-    function isOperational() 
-                            public 
-                            pure 
-                            returns(bool) 
+    function isOperational() public view returns(bool) 
     {
-        return true;  // Modify to call data contract's status
+        return dataContract.isOperational();  // Modify to call data contract's status
+    }
+
+    function setOperatingStatus(bool mode) external requireContractOwner{
+        dataContract.setOperatingStatus(mode);
     }
 
     /********************************************************************************************/
@@ -103,6 +92,7 @@ contract FlightSuretyApp {
                             )
                             external
                             pure
+                            requireIsOperational
                             returns(bool success, uint256 votes)
     {
         return (success, 0);
@@ -118,6 +108,7 @@ contract FlightSuretyApp {
                                 )
                                 external
                                 pure
+                                requireIsOperational
     {
 
     }
@@ -147,6 +138,7 @@ contract FlightSuretyApp {
                             uint256 timestamp                            
                         )
                         external
+                        requireIsOperational
     {
         uint8 index = getRandomIndex(msg.sender);
 
@@ -210,6 +202,7 @@ contract FlightSuretyApp {
                             )
                             external
                             payable
+                            requireIsOperational
     {
         // Require registration fee
         require(msg.value >= REGISTRATION_FEE, "Registration fee is required");
@@ -227,6 +220,7 @@ contract FlightSuretyApp {
                             )
                             view
                             external
+                            requireIsOperational
                             returns(uint8[3] memory)
     {
         require(oracles[msg.sender].isRegistered, "Not registered as an oracle");

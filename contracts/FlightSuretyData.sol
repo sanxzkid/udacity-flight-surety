@@ -10,8 +10,40 @@ contract FlightSuretyData {
     /*                                       DATA VARIABLES                                     */
     /********************************************************************************************/
 
-    address private contractOwner;                                      // Account used to deploy contract
-    bool private operational = true;                                    // Blocks all state changes throughout the contract if false
+     address private contractOwner;          // Account used to deploy contract
+    bool private operational = true;        // Blocks all state changes throughout the contract if false
+
+    enum AirlineStatus {
+        Init,
+        Registered,
+        Funded
+    }
+
+    struct Airline {
+        AirlineStatus status;
+        string name;
+        uint256 balance;
+        mapping(address => bool) voters;
+        uint256 votes;
+    }
+
+    mapping(address => Airline) private airlines;
+    uint256 airlinesRegistered;
+
+    enum FlightStatus {
+        Unknown,
+        OnTime,
+        Late
+    }
+
+    struct Flight {
+        FlightStatus status;
+        address airline;
+        string name;
+        uint256 timestamp;
+    }
+
+    mapping(address => Flight) private flights;
 
     /********************************************************************************************/
     /*                                       EVENT DEFINITIONS                                  */
@@ -22,11 +54,19 @@ contract FlightSuretyData {
     * @dev Constructor
     *      The deploying account becomes contractOwner
     */
-    constructor() 
+    constructor(address firstAirline) 
     {
         contractOwner = msg.sender;
+        addFirstAirline(firstAirline);
     }
 
+    function addFirstAirline(address airlineAddress) private {
+        Airline storage airline = airlines[airlineAddress];
+        airline.status = AirlineStatus.Registered;
+        airline.name = "Airline Admin";
+        airlinesRegistered = airlinesRegistered.add(1);
+    }
+ 
     /********************************************************************************************/
     /*                                       FUNCTION MODIFIERS                                 */
     /********************************************************************************************/
@@ -54,6 +94,24 @@ contract FlightSuretyData {
         _;
     }
 
+    modifier requireAirlineRegistered()
+    {
+        require(airlines[msg.sender].status == AirlineStatus.Registered, "Caller is not an Airline Registered");
+        _;
+    }
+
+    modifier requireAirlineNotVoter(address airlineAddress)
+    {
+        require(airlines[msg.sender].voters[airlineAddress], "Caller already voted");
+        _;
+    }
+
+    modifier requireMinFoundValue()
+    {
+        require(msg.value >= 10 ether, "Minimum value to found Airline is 10 ETH");
+        _;
+    }
+
     /********************************************************************************************/
     /*                                       UTILITY FUNCTIONS                                  */
     /********************************************************************************************/
@@ -77,12 +135,7 @@ contract FlightSuretyData {
     *
     * When operational mode is disabled, all write transactions except for this one will fail
     */    
-    function setOperatingStatus
-                            (
-                                bool mode
-                            ) 
-                            external
-                            requireContractOwner 
+    function setOperatingStatus(bool mode) external requireContractOwner 
     {
         operational = mode;
     }
@@ -92,16 +145,50 @@ contract FlightSuretyData {
     /********************************************************************************************/
 
    /**
-    * @dev Add an airline to the registration queue
+    * @dev Add an airline to the init queue
     *      Can only be called from FlightSuretyApp contract
     *
     */   
-    function registerAirline
-                            (   
-                            )
-                            external
-                            pure
+    function initAirline(address airlineAddress, string memory airlineName) external requireIsOperational
     {
+        Airline storage airline = airlines[airlineAddress];
+        airline.status = AirlineStatus.Init;
+        airline.name = airlineName;
+    }
+
+    function registerAirline(address airlineAddress) external requireIsOperational
+    {
+        Airline storage airline = airlines[airlineAddress];
+        airline.status = AirlineStatus.Registered;
+        airlinesRegistered = airlinesRegistered.add(1);
+    }
+
+    function fundAirline(address airlineAddress, uint256 value) external requireIsOperational
+    {
+        Airline storage airline = airlines[airlineAddress];
+        airline.status = AirlineStatus.Funded;
+        airline.balance = airline.balance.add(value);
+    }
+
+    function registerFlight(bytes32 key, address airline, string memory name) external requireIsOperational
+    {
+        Flight flight = flights[key];
+        flight.airline = airline;
+        flight.name = name;
+        flight.timestamp = block.timestamp;
+        flight.status = FlightStatus.Unknown;
+    }
+
+    function setOnTimeFlight(bytes32 key) external requireIsOperational
+    {
+        Flight flight = flights[key];
+        flight.status = FlightStatus.OnTime;
+    }
+
+    function setLateFlight(bytes32 key) external requireIsOperational
+    {
+        Flight flight = flights[key];
+        flight.status = FlightStatus.Late;
     }
 
 
@@ -142,19 +229,6 @@ contract FlightSuretyData {
     {
     }
 
-   /**
-    * @dev Initial funding for the insurance. Unless there are too many delayed flights
-    *      resulting in insurance payouts, the contract should be self-sustaining
-    *
-    */   
-    function fund
-                            (   
-                            )
-                            public
-                            payable
-    {
-    }
-
     function getFlightKey
                         (
                             address airline,
@@ -172,12 +246,10 @@ contract FlightSuretyData {
     * @dev Fallback function for funding smart contract.
     *
     */
-    // function() 
-    //                         external 
-    //                         payable 
-    // {
-    //     fund();
-    // }
+    receive() external payable 
+    {
+        fund();
+    }
 
 
 }
